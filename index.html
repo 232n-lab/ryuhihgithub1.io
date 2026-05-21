@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>妖怪タップパズル</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&display=swap');
+
+        :root {
+            --yokai-red: #ff4d4d;    /* ジバニャン */
+            --yokai-white: #f0f0f0;  /* ウィスパー */
+            --yokai-blue: #4db8ff;   /* コマさん */
+            --yokai-pink: #ff85a2;   /* フミちゃん/キュウビ */
+            --yokai-yellow: #ffdb4d; /* 太陽神/ひも爺 */
+        }
+
+        body {
+            background-color: #fce7bc; /* 畳や和風をイメージした背景色 */
+            font-family: 'Mochiy+Pop+One', sans-serif;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        .game-container {
+            max-width: 450px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+            background: #8b4513;
+            padding: 8px;
+            border-radius: 12px;
+            box-shadow: 0 10px 0 #5d2e0d;
+        }
+
+        .puni {
+            aspect-ratio: 1 / 1;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            cursor: pointer;
+            transition: transform 0.1s, filter 0.2s;
+            position: relative;
+            box-shadow: inset -4px -4px 8px rgba(0,0,0,0.2), inset 4px 4px 8px rgba(255,255,255,0.5);
+        }
+
+        .puni:active {
+            transform: scale(0.9);
+        }
+
+        .puni.pop {
+            animation: pop-anim 0.3s ease-out forwards;
+        }
+
+        @keyframes pop-anim {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .score-float {
+            position: absolute;
+            color: #ffde00;
+            font-weight: bold;
+            pointer-events: none;
+            animation: float-up 0.8s ease-out forwards;
+            z-index: 100;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        @keyframes float-up {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(-50px); opacity: 0; }
+        }
+
+        .timer-bar {
+            height: 12px;
+            background: #ddd;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 2px solid #5d2e0d;
+        }
+
+        #timer-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #ffeb3b, #f44336);
+            width: 100%;
+            transition: width 0.1s linear;
+        }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="game-container">
+        <!-- Header Stats -->
+        <div class="flex justify-between items-center mb-4 bg-white/80 p-3 rounded-2xl border-4 border-amber-600 shadow-md">
+            <div>
+                <p class="text-xs text-amber-800">スコア</p>
+                <p id="score" class="text-2xl text-amber-900">00000</p>
+            </div>
+            <div class="text-center">
+                <p class="text-xs text-amber-800">残り時間</p>
+                <div class="timer-bar w-32 mt-1">
+                    <div id="timer-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Board -->
+        <div id="grid" class="grid-container">
+            <!-- Puni units generated here -->
+        </div>
+
+        <!-- Footer / Instructions -->
+        <div class="mt-6 text-center">
+            <div class="inline-block bg-amber-100 px-4 py-2 rounded-full border-2 border-amber-600 text-amber-800 text-sm">
+                同じ妖怪が並んでいるところをタップ！
+            </div>
+        </div>
+    </div>
+
+    <!-- Start/Game Over Overlay -->
+    <div id="overlay" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+        <div class="bg-white p-8 rounded-3xl border-8 border-amber-500 text-center shadow-2xl max-w-xs w-full">
+            <h2 id="overlay-title" class="text-3xl text-amber-600 mb-2">妖怪パズル</h2>
+            <p id="overlay-desc" class="text-slate-600 mb-6">妖怪をたくさん繋げて消そう！</p>
+            <button id="start-btn" class="w-full bg-red-500 hover:bg-red-600 text-white py-4 rounded-2xl text-xl font-bold shadow-lg transform active:scale-95 transition-all">
+                バトル開始！
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const grid = document.getElementById('grid');
+        const scoreEl = document.getElementById('score');
+        const timerFill = document.getElementById('timer-fill');
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlay-title');
+        const overlayDesc = document.getElementById('overlay-desc');
+        const startBtn = document.getElementById('start-btn');
+
+        const ROWS = 8;
+        const COLS = 7;
+        const YOKAI_TYPES = [
+            { emoji: '🐱', color: '#ff4d4d', name: 'ジバニャン' },
+            { emoji: '🍦', color: '#4db8ff', name: 'コマさん' },
+            { emoji: '👻', color: '#f0f0f0', name: 'ウィスパー' },
+            { emoji: '🦊', color: '#ff85a2', name: 'キュウビ' },
+            { emoji: '🦁', color: '#ffdb4d', name: 'メラメライオン' }
+        ];
+
+        let board = [];
+        let score = 0;
+        let timeLeft = 60;
+        let gameActive = false;
+        let timerInterval;
+
+        function initBoard() {
+            board = [];
+            for (let r = 0; r < ROWS; r++) {
+                let row = [];
+                for (let c = 0; c < COLS; c++) {
+                    row.push(getRandomYokai());
+                }
+                board.push(row);
+            }
+            renderBoard();
+        }
+
+        function getRandomYokai() {
+            return Math.floor(Math.random() * YOKAI_TYPES.length);
+        }
+
+        function renderBoard() {
+            grid.innerHTML = '';
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const typeIdx = board[r][c];
+                    const yokai = YOKAI_TYPES[typeIdx];
+                    
+                    const div = document.createElement('div');
+                    div.className = 'puni';
+                    div.style.backgroundColor = yokai.color;
+                    div.innerHTML = `<span>${yokai.emoji}</span>`;
+                    div.dataset.row = r;
+                    div.dataset.col = c;
+                    
+                    div.addEventListener('click', () => handlePuniClick(r, c));
+                    grid.appendChild(div);
+                }
+            }
+        }
+
+        function handlePuniClick(r, c) {
+            if (!gameActive) return;
+
+            const targetType = board[r][c];
+            const connected = findConnected(r, c, targetType);
+
+            if (connected.length >= 2) {
+                removePuni(connected);
+                updateScore(connected.length);
+            }
+        }
+
+        function findConnected(r, c, type, visited = new Set()) {
+            const key = `${r},${c}`;
+            if (r < 0 || r >= ROWS || c < 0 || c >= COLS || 
+                board[r][c] !== type || visited.has(key)) {
+                return [];
+            }
+
+            visited.add(key);
+            let result = [{r, c}];
+
+            result = result.concat(findConnected(r + 1, c, type, visited));
+            result = result.concat(findConnected(r - 1, c, type, visited));
+            result = result.concat(findConnected(r, c + 1, type, visited));
+            result = result.concat(findConnected(r, c - 1, type, visited));
+
+            return result;
+        }
+
+        function removePuni(cells) {
+            // Animation and removal
+            cells.forEach(cell => {
+                const idx = cell.r * COLS + cell.c;
+                grid.children[idx].classList.add('pop');
+                board[cell.r][cell.c] = null;
+            });
+
+            setTimeout(() => {
+                applyGravity();
+                fillEmpty();
+                renderBoard();
+            }, 200);
+        }
+
+        function applyGravity() {
+            for (let c = 0; c < COLS; c++) {
+                let emptyRow = ROWS - 1;
+                for (let r = ROWS - 1; r >= 0; r--) {
+                    if (board[r][c] !== null) {
+                        board[emptyRow][c] = board[r][c];
+                        if (emptyRow !== r) board[r][c] = null;
+                        emptyRow--;
+                    }
+                }
+            }
+        }
+
+        function fillEmpty() {
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c] === null) {
+                        board[r][c] = getRandomYokai();
+                    }
+                }
+            }
+        }
+
+        function updateScore(count) {
+            const points = count * 100 * (count - 1);
+            score += points;
+            scoreEl.textContent = score.toString().padStart(5, '0');
+            
+            // Visual feedback
+            const float = document.createElement('div');
+            float.className = 'score-float';
+            float.textContent = `+${points}`;
+            float.style.left = '50%';
+            float.style.top = '20%';
+            document.body.appendChild(float);
+            setTimeout(() => float.remove(), 800);
+        }
+
+        function startTimer() {
+            timeLeft = 60;
+            timerFill.style.width = '100%';
+            timerInterval = setInterval(() => {
+                timeLeft -= 0.5;
+                const percent = (timeLeft / 60) * 100;
+                timerFill.style.width = `${percent}%`;
+
+                if (timeLeft <= 0) {
+                    endGame();
+                }
+            }, 500);
+        }
+
+        function startGame() {
+            score = 0;
+            scoreEl.textContent = '00000';
+            gameActive = true;
+            overlay.classList.add('hidden');
+            initBoard();
+            startTimer();
+        }
+
+        function endGame() {
+            gameActive = false;
+            clearInterval(timerInterval);
+            overlayTitle.textContent = "タイムアップ！";
+            overlayDesc.textContent = `今回のスコア: ${score}`;
+            startBtn.textContent = "もう一度バトル！";
+            overlay.classList.remove('hidden');
+        }
+
+        startBtn.addEventListener('click', startGame);
+
+    </script>
+</body>
+</html>
